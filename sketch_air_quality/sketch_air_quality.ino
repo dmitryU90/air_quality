@@ -1,7 +1,6 @@
 #include <ESP8266WiFi.h>
 #include <Wire.h>
 #include <SoftwareSerial.h>
-
 #include <PubSubClient.h>
 #include "SparkFunCCS811.h"
 #include "SparkFun_Si7021_Breakout_Library.h"
