@@ -6,14 +6,19 @@
 #include "SparkFun_Si7021_Breakout_Library.h"
 #include "Adafruit_BMP280.h"
 #include "PMS.h"
+#include <DHT.h>
 #include "secrets.h"
 
 // ====== Sensors ======
 #define CCS811_ADDR 0x5A
 
+#define DHT_PIN   5      // NodeMCU D1 = GPIO5
+#define DHT_TYPE  DHT21  // For AM2301A / DHT21
+
 CCS811 mySensor(CCS811_ADDR);
 Weather sensor;              // Si7021 lib calls it Weather
 Adafruit_BMP280 bmp;
+DHT dht(DHT_PIN, DHT_TYPE);
 
 SoftwareSerial swSer(12, 13, false); // RX=GPIO12, TX=GPIO13
 PMS pms(swSer);
@@ -76,6 +81,8 @@ struct SensorBuffer {
 
 SensorBuffer bufTempSi;
 SensorBuffer bufHum;
+SensorBuffer bufDhtTemp;
+SensorBuffer bufDhtHum;
 SensorBuffer bufBmpTemp;
 SensorBuffer bufPressure;
 SensorBuffer bufCO2;
@@ -180,7 +187,10 @@ void publishAllDiscovery() {
   publishDiscoverySensor("tvoc", "TVOC", baseTopic + "/tvoc", "ppb", "volatile_organic_compounds", "measurement", "mdi:air-filter");
 
   publishDiscoverySensor("temp", "Temperature (Si7021)", baseTopic + "/temperature", "°C", "temperature", "measurement", "");
-  publishDiscoverySensor("hum", "Humidity", baseTopic + "/humidity", "%", "humidity", "measurement", "");
+  publishDiscoverySensor("hum", "Humidity (Si7021)", baseTopic + "/humidity", "%", "humidity", "measurement", "");
+
+  publishDiscoverySensor("dht_temp", "Temperature (DHT21)", baseTopic + "/dht_temperature", "°C", "temperature", "measurement", "");
+  publishDiscoverySensor("dht_hum", "Humidity (DHT21)", baseTopic + "/dht_humidity", "%", "humidity", "measurement", "");
 
   publishDiscoverySensor("bmp_temp", "Temperature (BMP280)", baseTopic + "/bmp_temperature", "°C", "temperature", "measurement", "");
   publishDiscoverySensor("pressure", "Pressure", baseTopic + "/pressure", "hPa", "pressure", "measurement", "mdi:gauge");
@@ -267,6 +277,8 @@ float filterAndGetMedian(const SensorBuffer& buf, float minThreshold, const char
 void clearAllBuffers() {
   bufTempSi.clear();
   bufHum.clear();
+  bufDhtTemp.clear();
+  bufDhtHum.clear();
   bufBmpTemp.clear();
   bufPressure.clear();
   bufCO2.clear();
@@ -283,6 +295,7 @@ void sampleSensorsOnce() {
   // Si7021
   float humidity = sensor.getRH();
   float temp = sensor.getTemp();
+  bool envCompSet = false;
 
   if (!isnan(humidity) && !isnan(temp)) {
     bufHum.add(humidity);
@@ -291,8 +304,27 @@ void sampleSensorsOnce() {
 
     // compensation for CCS811
     mySensor.setEnvironmentalData(humidity, temp);
+    envCompSet = true;
   } else {
     Serial.println("Si7021 sample invalid");
+  }
+
+  // DHT21 / AM2301A
+  float dhtHumidity = dht.readHumidity();
+  float dhtTemp = dht.readTemperature();
+
+  if (!isnan(dhtHumidity) && !isnan(dhtTemp)) {
+    bufDhtHum.add(dhtHumidity);
+    bufDhtTemp.add(dhtTemp);
+    Serial.printf("DHT21 sample: T=%.2f C, RH=%.1f %%\n", dhtTemp, dhtHumidity);
+
+    // Optional fallback compensation for CCS811 if Si7021 failed
+    if (!envCompSet) {
+      mySensor.setEnvironmentalData(dhtHumidity, dhtTemp);
+      envCompSet = true;
+    }
+  } else {
+    Serial.println("DHT21 sample invalid");
   }
 
   // CCS811
@@ -343,7 +375,9 @@ void publishFilteredData() {
   Serial.println("===== FILTER + PUBLISH START =====");
 
   float tempSi    = filterAndGetMedian(bufTempSi,   TEMP_MIN_THRESHOLD,     "Temperature (Si7021)");
-  float hum       = filterAndGetMedian(bufHum,      HUM_MIN_THRESHOLD,      "Humidity");
+  float hum       = filterAndGetMedian(bufHum,      HUM_MIN_THRESHOLD,      "Humidity (Si7021)");
+  float dhtTemp   = filterAndGetMedian(bufDhtTemp,  TEMP_MIN_THRESHOLD,     "Temperature (DHT21)");
+  float dhtHum    = filterAndGetMedian(bufDhtHum,   HUM_MIN_THRESHOLD,      "Humidity (DHT21)");
   float bmpTemp   = filterAndGetMedian(bufBmpTemp,  TEMP_MIN_THRESHOLD,     "Temperature (BMP280)");
   float pressure  = filterAndGetMedian(bufPressure, PRESSURE_MIN_THRESHOLD, "Pressure");
   float co2       = filterAndGetMedian(bufCO2,      CO2_MIN_THRESHOLD,      "CO2");
@@ -364,6 +398,9 @@ void publishFilteredData() {
   if (!isnan(hum))      publishFloat(baseTopic + "/humidity", hum, 1);
   if (!isnan(tempSi))   publishFloat(baseTopic + "/temperature", tempSi, 2);
 
+  if (!isnan(dhtHum))   publishFloat(baseTopic + "/dht_humidity", dhtHum, 1);
+  if (!isnan(dhtTemp))  publishFloat(baseTopic + "/dht_temperature", dhtTemp, 2);
+
   if (!isnan(bmpTemp))  publishFloat(baseTopic + "/bmp_temperature", bmpTemp, 2);
   if (!isnan(pressure)) publishFloat(baseTopic + "/pressure", pressure, 1);
 
@@ -371,8 +408,8 @@ void publishFilteredData() {
   if (!isnan(pm25))     publishInt(baseTopic + "/pm2_5", (int)roundf(pm25));
   if (!isnan(pm10))     publishInt(baseTopic + "/pm10", (int)roundf(pm10));
 
-  Serial.printf("PUBLISHED: CO2=%.0f, TVOC=%.0f, T=%.2f, RH=%.1f, BMP_T=%.2f, P=%.1f, PM1=%.0f, PM2.5=%.0f, PM10=%.0f\n",
-                co2, tvoc, tempSi, hum, bmpTemp, pressure, pm1, pm25, pm10);
+  Serial.printf("PUBLISHED: CO2=%.0f, TVOC=%.0f, Si_T=%.2f, Si_RH=%.1f, DHT_T=%.2f, DHT_RH=%.1f, BMP_T=%.2f, P=%.1f, PM1=%.0f, PM2.5=%.0f, PM10=%.0f\n",
+                co2, tvoc, tempSi, hum, dhtTemp, dhtHum, bmpTemp, pressure, pm1, pm25, pm10);
 
   clearAllBuffers();
   Serial.println("===== FILTER + PUBLISH END =====");
@@ -393,6 +430,9 @@ void setup() {
 
   Serial.println("Init Si7021...");
   sensor.begin();
+
+  Serial.println("Init DHT21...");
+  dht.begin();
 
   Serial.println("Init BMP280...");
   if (!bmp.begin(0x76)) {
