@@ -44,7 +44,7 @@ unsigned long lastSampleMs = 0;
 unsigned long lastPublishMs = 0;
 
 // ====== Filter settings ======
-const int SAMPLE_COUNT = 10;
+const int SAMPLE_COUNT = 5;
 const float REL_THRESHOLD = 0.30f;
 
 // Minimum absolute thresholds
