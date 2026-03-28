@@ -37,7 +37,7 @@ WiFiClient espClient;
 PubSubClient mqtt(espClient);
 
 // ====== Timing ======
-const unsigned long SAMPLE_INTERVAL_MS  = 30000UL;   // 30 sec
+const unsigned long SAMPLE_INTERVAL_MS  = 60000UL;   // 30 sec
 const unsigned long PUBLISH_INTERVAL_MS = 300000UL;  // 5 min
 
 unsigned long lastSampleMs = 0;
@@ -184,7 +184,7 @@ void publishDiscoverySensor(
 
 void publishAllDiscovery() {
   publishDiscoverySensor("co2", "CO2", baseTopic + "/co2", "ppm", "carbon_dioxide", "measurement", "mdi:molecule-co2");
-  publishDiscoverySensor("tvoc", "TVOC", baseTopic + "/tvoc", "ppb", "volatile_organic_compounds", "measurement", "mdi:air-filter");
+  publishDiscoverySensor("tvoc", "TVOC", baseTopic + "/tvoc", "ppb", "volatile_organic_compounds_parts", "measurement", "mdi:air-filter");
 
   publishDiscoverySensor("temp", "Temperature (Si7021)", baseTopic + "/temperature", "°C", "temperature", "measurement", "");
   publishDiscoverySensor("hum", "Humidity (Si7021)", baseTopic + "/humidity", "%", "humidity", "measurement", "");
